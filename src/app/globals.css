@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Public Sans Variable", "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-ink: #1b2430;
+  --color-ink-soft: #3a4552;
+  --color-muted: #5b6570;
+  --color-canvas: #f3f4f1;
+  --color-panel: #ffffff;
+  --color-rule: #d8dcd5;
+  --color-rule-soft: #e8eae5;
+  --color-teal: #1f5a6b;
+  --color-teal-ink: #123c48;
+  --color-teal-wash: #e3eef0;
+  --color-amber: #8a5a00;
+  --color-amber-wash: #fbf0d9;
+  --color-red: #9f2a22;
+  --color-red-wash: #f8e4e1;
+  --color-green: #2c6b3c;
+  --color-green-wash: #e2f0e4;
+  --color-slate-wash: #eceef0;
+}
+
+html { font-feature-settings: "tnum" 1, "lnum" 1; }
+body { background: var(--color-canvas); color: var(--color-ink); }
+
+:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; border-radius: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+@layer components {
+/* Data tables */
+.tbl { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.tbl th { text-align: left; font-weight: 600; color: var(--color-muted); font-size: 0.8125rem; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-rule); white-space: nowrap; background: var(--color-panel); position: sticky; top: 0; }
+.tbl td { padding: 0.625rem 0.75rem; border-bottom: 1px solid var(--color-rule-soft); vertical-align: top; }
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl tbody tr:hover { background: #f8f9f7; }
+.tbl .num { text-align: right; white-space: nowrap; }
+
+/* Form controls */
+.field { display: grid; gap: 0.25rem; font-size: 0.875rem; }
+.field > span { font-weight: 600; color: var(--color-ink-soft); }
+.field small { color: var(--color-muted); font-weight: 400; }
+.input { width: 100%; border: 1px solid #c3c9c1; border-radius: 6px; background: #fff; padding: 0.45rem 0.6rem; font-size: 0.875rem; color: var(--color-ink); }
+.input:focus { border-color: var(--color-teal); outline: 2px solid var(--color-teal-wash); outline-offset: 0; }
+.input[aria-invalid="true"] { border-color: var(--color-red); }
+textarea.input { min-height: 5rem; }
+
+.prose-diff ins { background: var(--color-green-wash); text-decoration: none; color: var(--color-green); }
+.prose-diff del { background: var(--color-red-wash); color: var(--color-red); }
+}

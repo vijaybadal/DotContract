@@ -1,0 +1,9 @@
+!storage/.gitkeep
+*.tsbuildinfo
+.env
+.next
+.test-storage
+e2e/artifacts
+next-env.d.ts
+node_modules
+storage/*
