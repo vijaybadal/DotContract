@@ -15,7 +15,12 @@ const globalForDb = globalThis as unknown as { __clmPool?: Pool; __clmDb?: DB };
 function create(): DB {
   const pool =
     globalForDb.__clmPool ??
-    new Pool({ connectionString: process.env.DATABASE_URL, max: Number(process.env.DB_POOL_MAX ?? 10) });
+    new Pool({
+      connectionString: process.env.DATABASE_URL,
+      // Serverless functions each hold their own pool: keep it small and let the provider's pooler fan in.
+      max: Number(process.env.DB_POOL_MAX ?? (process.env.VERCEL ? 3 : 10)),
+      idleTimeoutMillis: process.env.VERCEL ? 5_000 : 30_000,
+    });
   globalForDb.__clmPool = pool;
   return drizzle(pool, { schema });
 }

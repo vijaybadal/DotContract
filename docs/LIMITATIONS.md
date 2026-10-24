@@ -21,6 +21,11 @@
 - **Accessibility**: keyboard navigation, focus states, labels and contrast were designed for WCAG 2.2 AA,
   but no automated axe scan or screen-reader test has been run yet.
 - **Container image** has not been built (DEPLOYMENT.md).
+- **Vercel configuration** was tested locally against an empty PostgreSQL database with the same build
+  script, storage, cron and access-code settings, but not on Vercel itself (Vercel and Neon were not
+  reachable from the build environment).
+- **Database document storage** (used on Vercel) suits demonstrations and modest volumes; production
+  should use object storage.
 
 ## Backlog, in suggested order
 

@@ -23,6 +23,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  customType,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
@@ -365,6 +366,14 @@ export const documentVersion = pgTable(
   },
   (t) => [uniqueIndex("document_version_uq").on(t.documentId, t.versionNo)],
 );
+
+// Encrypted document bytes for hosts without lasting disk (STORAGE_PROVIDER=db). Never updated.
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+export const storedObject = pgTable("stored_object", {
+  key: text("key").primaryKey(),
+  bytes: bytea("bytes").notNull(),
+  createdAt: createdAt(),
+});
 
 // ───────────── Workflow & approvals ─────────────
 export type RuleExpr = unknown; // JSON-logic subset, see src/lib/rules.ts

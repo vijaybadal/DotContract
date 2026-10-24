@@ -9,7 +9,7 @@ import { redirect } from "next/navigation";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { notification, user } from "@/db/schema";
-import { authMode, endSession, getActor, startSession } from "@/lib/auth/session";
+import { authMode, checkAccessCode, endSession, getActor, passedAccessGate, startSession } from "@/lib/auth/session";
 import type { Actor } from "@/lib/authz";
 import { canRunJobs, getOrgIndex, isReadOnly } from "@/lib/authz";
 import * as contracts from "@/lib/contracts";
@@ -42,12 +42,21 @@ async function run<T>(fn: (actor: Actor) => Promise<T>, revalidate: string[] = [
 // ───── Session
 export async function signInAsDemoUser(formData: FormData) {
   if (authMode() !== "dev") throw new ForbiddenError("Demo sign-in is disabled.");
+  if (!(await passedAccessGate())) redirect("/login");
   const id = String(formData.get("userId") ?? "");
   const [u] = await db.select().from(user).where(and(eq(user.id, id), eq(user.isDemo, true), eq(user.active, true)));
   if (!u) redirect("/login?error=unknown");
   await startSession(u.id, "dev");
   const next = String(formData.get("next") ?? "/");
   redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/");
+}
+
+export async function enterAccessCode(formData: FormData) {
+  if (authMode() !== "dev") redirect("/login");
+  await new Promise((r) => setTimeout(r, 400)); // slow down guessing
+  const ok = await checkAccessCode(String(formData.get("code") ?? ""));
+  const next = String(formData.get("next") ?? "/");
+  redirect(`/login?${ok ? "" : "error=code&"}next=${encodeURIComponent(next.startsWith("/") && !next.startsWith("//") ? next : "/")}`);
 }
 
 export async function signOut() {

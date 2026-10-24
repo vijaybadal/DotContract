@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { user, userRoleAssignment } from "@/db/schema";
-import { authMode } from "@/lib/auth/session";
+import { authMode, passedAccessGate } from "@/lib/auth/session";
 import { getOrgIndex } from "@/lib/authz";
-import { signInAsDemoUser } from "@/app/actions";
+import { enterAccessCode, signInAsDemoUser } from "@/app/actions";
 
 export const metadata: Metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
@@ -35,6 +35,20 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     );
   }
 
+  if (!(await passedAccessGate())) {
+    return (
+      <main className="grid min-h-screen place-items-center px-4">
+        <form action={enterAccessCode} className="w-full max-w-sm rounded-md border border-rule bg-panel p-8">
+          <h1 className="text-xl font-semibold">DOTComm Contracts</h1>
+          <p className="mt-2 text-sm text-muted">This demonstration is shared by invitation. Enter the access code you were given.</p>
+          {error === "code" && <p role="alert" className="mt-3 rounded border-l-4 border-red bg-red-wash px-3 py-2 text-sm">That code is not right. Check it and try again.</p>}
+          <input type="hidden" name="next" value={next} />
+          <label className="field mt-4"><span>Access code</span><input className="input" name="code" type="password" autoComplete="off" required autoFocus /></label>
+          <button className="mt-4 w-full rounded-md bg-teal px-4 py-2.5 font-semibold text-white hover:bg-teal-ink">Continue</button>
+        </form>
+      </main>
+    );
+  }
   const idx = await getOrgIndex(db, true);
   const users = await db.select().from(user).where(eq(user.isDemo, true)).orderBy(asc(user.name));
   const roles = await db.select().from(userRoleAssignment);
@@ -52,7 +66,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         Choose a demonstration account. Each person sees only the contracts their roles cover, so switching accounts is the quickest way to walk through a request
         from submission to signature.
       </p>
-      {error && <p className="mt-4 rounded border-l-4 border-red bg-red-wash px-4 py-2 text-sm">That account could not be used. Choose another.</p>}
+      {error === "unknown" && <p className="mt-4 rounded border-l-4 border-red bg-red-wash px-4 py-2 text-sm">That account could not be used. Choose another.</p>}
       <div className="mt-8 grid gap-8 lg:grid-cols-3">
         {order.filter((g) => groups.has(g)).map((g) => (
           <section key={g}>

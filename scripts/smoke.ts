@@ -74,6 +74,18 @@ async function main() {
   const csp = r.headers.get("content-security-policy") ?? "";
   check("security headers are set", csp.includes("frame-ancestors 'none'") && r.headers.get("x-content-type-options") === "nosniff" && !r.headers.get("x-powered-by"));
 
+  if (process.env.CRON_SECRET) {
+    r = await fetch(`${BASE}/api/cron/jobs`);
+    check("scheduled-job endpoint refuses calls without the cron secret", r.status === 401);
+    r = await fetch(`${BASE}/api/cron/jobs`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } });
+    check("scheduled-job endpoint runs with the cron secret", r.status === 200 && Boolean((await r.json()).data?.renewals));
+  }
+  if (process.env.DEMO_ACCESS_CODE) {
+    r = await fetch(`${BASE}/login`);
+    const html = await r.text();
+    check("demo account picker is hidden behind the access code", html.includes('name="code"') && !html.includes("Priya Natarajan"));
+  }
+
   r = await fetch(`${BASE}/api/v1/esign/webhook`, { method: "POST" });
   check("unconfigured e-signature webhook refuses calls (501)", r.status === 501);
 

@@ -146,7 +146,7 @@ export function UploadForm({ contractId, documents, hasAgreement }: { contractId
         </label>
       )}
       {!target && <label className="field"><span>Title</span><input className="input" name="title" placeholder="Defaults to the file name" /></label>}
-      <label className="field"><span>File <small>PDF, Word, Excel, text or image · up to 25 MB</small></span><input className="input" type="file" name="file" required /></label>
+      <label className="field"><span>File <small>PDF, Word, Excel, text or image · up to {process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? "25"} MB</small></span><input className="input" type="file" name="file" required /></label>
       <label className="field sm:col-span-2"><span>Version note</span><input className="input" name="note" placeholder="e.g. County redline sent to vendor" /></label>
       <div className="flex flex-wrap gap-5 text-sm sm:col-span-2">
         <label className="flex items-center gap-2"><input type="checkbox" name="confidential" /> Confidential (owner, administrators and Legal only)</label>

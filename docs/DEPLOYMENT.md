@@ -1,5 +1,7 @@
 # Deployment
 
+For a shared demonstration site without managing a server, see [VERCEL.md](VERCEL.md).
+
 ## Components
 
 | Component | Notes |
@@ -16,7 +18,10 @@
 | `DATABASE_URL` | PostgreSQL connection string |
 | `SESSION_SECRET` | 32+ random characters; rotate to invalidate all sessions |
 | `STORAGE_KEY` | 64 hex characters (256-bit) for the local encrypted storage adapter |
-| `STORAGE_DIR` / `STORAGE_PROVIDER` | Local directory, or `s3` once implemented |
+| `STORAGE_DIR` / `STORAGE_PROVIDER` | `local` (directory), `db` (encrypted in PostgreSQL; default on Vercel), or `s3` once implemented |
+| `CRON_SECRET` | Required for `/api/cron/jobs` (hosts without a long-running job process) |
+| `DEMO_ACCESS_CODE` | Optional: visitors enter it before the demo account picker |
+| `SEED_DEMO` / `RESEED_DEMO` | Used by `npm run vercel-build` to load or reload synthetic demo data |
 | `AUTH_MODE` | `oidc` in production; `dev` shows the demo account picker |
 | `ALLOW_DEMO_LOGIN` | Must be `true` for `AUTH_MODE=dev` on a production build. Demonstration servers only. |
 | `ESIGN_PROVIDER` / `ALLOW_MOCK_ESIGN` | The mock is refused in production unless `ALLOW_MOCK_ESIGN=true`. Demonstration servers only. |

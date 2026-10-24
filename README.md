@@ -45,6 +45,8 @@ Run scheduled work (reminders, escalations, email outbox) hourly in production; 
 npm run jobs
 ```
 
+Shared demo on Vercel + Neon (about 15 minutes, no server to manage): [docs/VERCEL.md](docs/VERCEL.md).
+
 With Docker (not yet run in CI — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)):
 
 ```bash
@@ -54,8 +56,8 @@ docker compose up --build
 ## Tests
 
 ```bash
-npm test          # 75 unit + integration tests against a real PostgreSQL test database (clm_test)
-npm run smoke     # 16 HTTP checks against a running server: auth, CSRF, scoping, exports, headers
+npm test          # 80 unit + integration tests against a real PostgreSQL test database (clm_test)
+npm run smoke     # 16–19 HTTP checks against a running server: auth, CSRF, scoping, exports, headers
 npm run e2e       # browser test of the full thin slice; needs CHROME_PATH and a freshly seeded server
 ```
 
@@ -84,7 +86,7 @@ transitions, renewal date math and the regressions from the independent security
 - [Architecture and data model](docs/ARCHITECTURE.md)
 - [Administrator guide](docs/ADMIN.md) — workflows and routing rules, signing authority, roles, jobs
 - [Integrations](docs/INTEGRATIONS.md) — SSO, e-signature, email, storage, malware scanning, ERP
-- [Deployment](docs/DEPLOYMENT.md)
+- [Deployment](docs/DEPLOYMENT.md) · [Vercel + Neon demo](docs/VERCEL.md)
 - [Decisions needed before production](docs/DECISIONS.md)
 - [Known limitations and backlog](docs/LIMITATIONS.md)
 - [Security review and fixes](docs/SECURITY-REVIEW.md)

@@ -15,7 +15,8 @@
     "jobs": "tsx scripts/run-jobs.ts",
     "test": "vitest run",
     "smoke": "tsx scripts/smoke.ts",
-    "e2e": "node e2e/scenarios.e2e.mjs"
+    "e2e": "node e2e/scenarios.e2e.mjs",
+    "vercel-build": "tsx scripts/vercel-build.ts && next build"
   },
   "dependencies": {
     "@fontsource-variable/public-sans": "^5.3.0",
@@ -43,5 +44,8 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }

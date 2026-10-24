@@ -61,7 +61,8 @@ export async function processOutbox(now = new Date(), limit = 100) {
         .from(notification)
         .innerJoin(user, eq(user.id, notification.userId))
         .where(eq(notification.id, d.notificationId));
-      const link = n.link ? `${process.env.APP_BASE_URL ?? ""}${n.link}` : null;
+      const base = process.env.APP_BASE_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "");
+      const link = n.link ? `${base}${n.link}` : null;
       try {
         const res = await adapter.send({ to: n.email, subject: n.title, text: n.body ?? n.title, link });
         await tx

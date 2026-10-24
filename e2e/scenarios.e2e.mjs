@@ -46,6 +46,12 @@ async function expectText(text, timeout = 15000) {
 async function signInAs(name) {
   await page.deleteCookie({ name: "clm_session", url: BASE });
   await page.goto(`${BASE}/login`);
+  if (process.env.E2E_ACCESS_CODE && (await page.$('input[name="code"]'))) {
+    await page.locator('input[name="code"]').fill(process.env.E2E_ACCESS_CODE);
+    await page.locator(button("Continue")).click();
+    await page.waitForSelector("::-p-xpath(//h1[normalize-space(.)='DOTComm Contracts'])");
+    await page.waitForFunction(() => !document.querySelector('input[name="code"]'));
+  }
   await page.locator(`::-p-xpath(//button[.//span[normalize-space(.)="${name}"]])`).click();
   await page.waitForFunction(() => location.pathname === "/");
 }

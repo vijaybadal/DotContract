@@ -5,7 +5,8 @@ import { appSetting } from "@/db/schema";
 /** Defaults are configurable placeholders, not City/County policy. */
 export const SETTING_DEFAULTS = {
   "renewal.reminderDays": [180, 120, 90, 60, 30] as number[],
-  "documents.maxBytes": 25 * 1024 * 1024,
+  // Vercel caps a request body at 4.5 MB, so uploads there are limited to 4 MB.
+  "documents.maxBytes": Number(process.env.MAX_UPLOAD_MB ?? (process.env.VERCEL ? 4 : 25)) * 1024 * 1024,
   "documents.allowedExtensions": ["pdf", "docx", "doc", "xlsx", "txt", "png", "jpg", "jpeg"] as string[],
   "tasks.reminderEveryDays": 2,
   "tasks.escalateAfterDaysOverdue": 2,

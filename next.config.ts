@@ -18,6 +18,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Self-contained server bundle for the container image (see Dockerfile).
   output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
+  env: { NEXT_PUBLIC_MAX_UPLOAD_MB: process.env.MAX_UPLOAD_MB ?? (process.env.VERCEL ? "4" : "25") },
   serverExternalPackages: ["pg"],
   experimental: { serverActions: { bodySizeLimit: "26mb" } },
   async headers() {

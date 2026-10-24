@@ -48,3 +48,29 @@ export const authMode = (): "dev" | "oidc" => {
   if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEMO_LOGIN !== "true") return "oidc";
   return "dev";
 };
+
+// ───────────── Optional demo access code (DEMO_ACCESS_CODE) ─────────────
+// A public demo URL would otherwise let anyone pick any demo identity. When set, visitors must enter
+// the code once; a signed cookie remembers it for 30 days.
+import { createHmac, timingSafeEqual } from "node:crypto";
+const GATE_COOKIE = "clm_demo_gate";
+const gateValue = () => createHmac("sha256", process.env.SESSION_SECRET ?? "").update(`gate:${process.env.DEMO_ACCESS_CODE}`).digest("hex");
+
+export const accessCodeRequired = () => Boolean(process.env.DEMO_ACCESS_CODE);
+
+export async function passedAccessGate() {
+  if (!accessCodeRequired()) return true;
+  const v = (await cookies()).get(GATE_COOKIE)?.value ?? "";
+  const want = gateValue();
+  return v.length === want.length && timingSafeEqual(Buffer.from(v), Buffer.from(want));
+}
+
+export async function checkAccessCode(code: string) {
+  const want = Buffer.from(process.env.DEMO_ACCESS_CODE ?? "");
+  const got = Buffer.from(code.trim());
+  const ok = want.length > 0 && got.length === want.length && timingSafeEqual(got, want);
+  if (ok) {
+    (await cookies()).set(GATE_COOKIE, gateValue(), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 30 * 86400 });
+  }
+  return ok;
+}
