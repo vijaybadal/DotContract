@@ -1,0 +1,2 @@
+ALTER TYPE "public"."signature_request_status" ADD VALUE 'COMPLETING' BEFORE 'COMPLETED';--> statement-breakpoint
+CREATE UNIQUE INDEX "document_one_agreement_uq" ON "contract_document" USING btree ("contract_id") WHERE "contract_document"."kind" = 'AGREEMENT';

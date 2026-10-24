@@ -3,14 +3,16 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadActor, type Actor } from "@/lib/authz";
-import { SESSION_COOKIE, SESSION_HOURS, signSession, verifySession } from "./token";
+import { readSession, SESSION_COOKIE, SESSION_HOURS, signSession } from "./token";
 
 export const getActor = cache(async (): Promise<Actor | null> => {
   const store = await cookies();
-  const userId = await verifySession(store.get(SESSION_COOKIE)?.value);
-  if (!userId) return null;
+  const session = await readSession(store.get(SESSION_COOKIE)?.value);
+  if (!session) return null;
+  // A demo-login session is never honored once the server requires single sign-on.
+  if (session.method === "dev" && authMode() !== "dev") return null;
   try {
-    return await loadActor(userId);
+    return await loadActor(session.userId);
   } catch {
     return null;
   }

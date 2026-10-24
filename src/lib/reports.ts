@@ -13,7 +13,12 @@ import {
   workflowInstance,
   workflowTask,
 } from "@/db/schema";
-import { getOrgIndex, type Actor } from "./authz";
+import { getOrgIndex, hasRole, isPlatformWide, type Actor, type OrgIndex } from "./authz";
+import { ForbiddenError } from "./errors";
+
+export function canSeeAuditDetail(a: Actor, idx: OrgIndex) {
+  return isPlatformWide(a, "AUDITOR", idx) || isPlatformWide(a, "SYSTEM_ADMIN", idx) || a.assignments.some((x) => x.roleKey === "CLM_ADMIN");
+}
 import { listContracts, type ContractFilters } from "./contracts";
 import { daysBetween, todayIn } from "./dates";
 import { allocate, toNumber } from "./money";
@@ -41,7 +46,10 @@ export async function contractInventory(actor: Actor, f: ContractFilters = {}): 
   };
 }
 
-export const REPORTS: { key: string; title: string; description: string; build: (a: Actor) => Promise<Table> }[] = [
+/** Demo executions (mock e-signature) are not real commitments and stay out of financial totals. */
+const real = <T extends { executionIsDemo: boolean }>(rows: T[]) => rows.filter((c) => !c.executionIsDemo);
+
+export const REPORTS: { key: string; title: string; description: string; restricted?: boolean; build: (a: Actor) => Promise<Table> }[] = [
   { key: "inventory", title: "Contract inventory", description: "Every contract with parties, status, value and dates.", build: (a) => contractInventory(a) },
   {
     key: "expirations",
@@ -49,7 +57,7 @@ export const REPORTS: { key: string; title: string; description: string; build: 
     description: "Active contracts ending within a year, with notice deadlines and what happens if no one acts.",
     build: async (a) => {
       const today = todayIn();
-      const rows = (await listContracts(a, { status: "ACTIVE", expiringDays: 365, limit: 2000 })).map((c) => {
+      const rows = real(await listContracts(a, { status: "ACTIVE", expiringDays: 365, limit: 2000 })).map((c) => {
         const notice = c.noticeDays && c.expirationDate ? new Date(Date.parse(`${c.expirationDate}T00:00:00Z`) - c.noticeDays * 86_400_000).toISOString().slice(0, 10) : c.expirationDate;
         return [c.number, c.title, c.vendorName, c.entityName, c.ownerName, c.expirationDate, notice, notice ? daysBetween(today, notice) : null, c.autoRenew ? "Auto-renews" : "Expires", toNumber(c.annualValue ?? c.totalValue)];
       });
@@ -62,7 +70,7 @@ export const REPORTS: { key: string; title: string; description: string; build: 
     description: "Active contract commitments grouped by vendor.",
     build: async (a) => {
       const m = new Map<string, { n: number; total: number; annual: number }>();
-      for (const c of await listContracts(a, { status: "ACTIVE", limit: 2000 })) {
+      for (const c of real(await listContracts(a, { status: "ACTIVE", limit: 2000 }))) {
         const k = c.vendorName ?? "(none)";
         const e = m.get(k) ?? { n: 0, total: 0, annual: 0 };
         e.n++;
@@ -79,7 +87,7 @@ export const REPORTS: { key: string; title: string; description: string; build: 
     description: "Annual commitments split by paying agency, including shared contracts.",
     build: async (a) => {
       const idx = await getOrgIndex();
-      const active = await listContracts(a, { status: "ACTIVE", limit: 2000 });
+      const active = real(await listContracts(a, { status: "ACTIVE", limit: 2000 }));
       const fin = active.length ? await db.select().from(contractAgency).where(and(inArray(contractAgency.contractId, active.map((c) => c.id)), eq(contractAgency.role, "FINANCIAL"))) : [];
       const rows: Cell[][] = [];
       for (const c of active) {
@@ -146,7 +154,7 @@ export const REPORTS: { key: string; title: string; description: string; build: 
     title: "SaaS subscriptions and license utilization",
     description: "Licensed vs. assigned seats, annual cost and the cost of unassigned licenses.",
     build: async (a) => {
-      const active = await listContracts(a, { status: "ACTIVE", limit: 2000 });
+      const active = real(await listContracts(a, { status: "ACTIVE", limit: 2000 }));
       const subs = active.length ? await db.select().from(subscriptionLicense).where(inArray(subscriptionLicense.contractId, active.map((c) => c.id))) : [];
       return {
         columns: ["Contract", "Vendor", "Product", "Plan", "Licensed", "Assigned", "Utilization %", "Unit cost", "Annual cost", "Unassigned cost", "Renews"],
@@ -175,9 +183,12 @@ export const REPORTS: { key: string; title: string; description: string; build: 
   {
     key: "change-history",
     title: "Contract change history",
-    description: "Every recorded event — submissions, decisions, document versions, signatures — from the audit log.",
+    description: "Every recorded event — submissions, decisions, document versions, signatures — from the audit log. Administrators and auditors only.",
+    restricted: true,
     build: async (a) => {
-      const visible = await listContracts(a, { limit: 2000 });
+      const idx = await getOrgIndex();
+      if (!canSeeAuditDetail(a, idx)) throw new ForbiddenError("The change history report is limited to contract administrators and auditors.");
+      const visible = (await listContracts(a, { limit: 2000 })).filter((c) => isPlatformWide(a, "AUDITOR", idx) || isPlatformWide(a, "SYSTEM_ADMIN", idx) || hasRole(a, "CLM_ADMIN", idx, c.administeringOrgId));
       const ids = visible.map((c) => c.id);
       const users = await db.select({ id: user.id, name: user.name }).from(user);
       const ev = ids.length ? await db.select().from(auditLog).where(inArray(auditLog.contractId, ids)).orderBy(asc(auditLog.id)) : [];

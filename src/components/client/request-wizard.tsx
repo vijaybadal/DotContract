@@ -18,6 +18,7 @@ type Ref = {
   users: { id: string; name: string; title: string | null }[];
   parents: { id: string; number: string; title: string }[];
   myDepts: string[];
+  canWaiveLegal: boolean;
 };
 export type WizardValues = {
   requestType: string;
@@ -376,7 +377,10 @@ export function RequestWizard({
                 <option value="LOW">Low</option><option value="MODERATE">Moderate</option><option value="HIGH">High</option>
               </select>
             </F>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.legalRequired} onChange={(e) => set("legalRequired", e.target.checked)} /> Legal review required</label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={v.legalRequired} disabled={!refData.canWaiveLegal && v.legalRequired} onChange={(e) => set("legalRequired", e.target.checked)} /> Legal review required
+              {!refData.canWaiveLegal && <small className="text-muted">· only a contract administrator can waive it</small>}
+            </label>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.confidential} onChange={(e) => set("confidential", e.target.checked)} /> Restrict documents to owner, administrators and Legal</label>
             <F error={errors["purchasingNotes"]} label="Purchasing requirements" hint="procurement method, cooperative contract, bid number" span>
               <textarea className="input" rows={2} value={v.purchasingNotes} onChange={(e) => set("purchasingNotes", e.target.value)} />

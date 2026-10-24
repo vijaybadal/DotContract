@@ -167,9 +167,21 @@ export async function executionBlockers(conn: Conn, c: ContractRow): Promise<Blo
   if (!agreement) b.push({ code: "NO_AGREEMENT", message: "No agreement document has been uploaded." });
   else if (agreement.scanStatus !== "CLEAN") b.push({ code: "AGREEMENT_NOT_SCANNED", message: "The agreement has not passed the malware scan." });
 
+  if (inst) {
+    // Terms must be the ones the approvals were routed and granted against.
+    const approved = (inst.context as { contract?: { totalValue?: number; expirationDate?: string | null } }).contract ?? {};
+    if (approved.totalValue != null && Math.abs(approved.totalValue - toNumber(c.totalValue)) > 0.005) {
+      b.push({ code: "TERMS_CHANGED_AFTER_APPROVAL", message: `The value changed after approval (${formatMoney(approved.totalValue)} approved, ${formatMoney(c.totalValue)} now). Route the change for re-approval.` });
+    }
+    if (approved.expirationDate !== undefined && approved.expirationDate !== c.expirationDate) {
+      b.push({ code: "TERMS_CHANGED_AFTER_APPROVAL", message: "The term changed after approval. Route the change for re-approval." });
+    }
+  }
   if (inst && agreement) {
     const tasks = await conn.select().from(workflowTask).where(eq(workflowTask.instanceId, inst.id));
-    const pinned = tasks.filter((t) => t.status === "APPROVED" && t.reapproveOnMaterialChange);
+    // With Legal review, Legal's clearance of the exact text vouches for edits made during negotiation, so only
+    // steps flagged for re-approval must match. Without Legal, every approval must be of the current text.
+    const pinned = tasks.filter((t) => t.status === "APPROVED" && (t.reapproveOnMaterialChange || !c.legalRequired));
     if (pinned.length) {
       const decisions = await conn
         .select()
@@ -332,14 +344,38 @@ export async function applySignerSigned(actorId: string, signatureRequestId: str
       await writeAudit(tx, { actorId, action: "SIGNER_SIGNED", entityType: "signature_request", entityId: req.id, contractId: req.contractId, data: { signer: s.name, mock: req.isMock } });
       return { complete: false as const };
     }
-    await writeAudit(tx, { actorId, action: "SIGNER_SIGNED", entityType: "signature_request", entityId: req.id, contractId: req.contractId, data: { signer: s.name, mock: req.isMock } });
+    // Every signer is done. Hold the request in COMPLETING (it can no longer be voided) until execution is recorded.
+    await tx.update(signatureRequest).set({ status: "COMPLETING" }).where(eq(signatureRequest.id, req.id));
+    await tx.update(contract).set({ signatureStatus: "PARTIALLY_SIGNED" }).where(eq(contract.id, req.contractId));
+    await writeAudit(tx, { actorId, action: "SIGNER_SIGNED", entityType: "signature_request", entityId: req.id, contractId: req.contractId, data: { signer: s.name, mock: req.isMock, allSigned: true } });
     return { complete: true as const, req };
   });
   if (!outcome.complete) return { executed: false };
-  return completeExecution(actorId, outcome.req);
+  return completeExecution(actorId, outcome.req.id);
 }
 
-async function completeExecution(actorId: string, req: typeof signatureRequest.$inferSelect) {
+/** Re-runs execution recording for a request whose signers all signed but completion failed (e.g. storage outage). */
+export async function retryCompletion(actor: Actor, signatureRequestId: string) {
+  const [req] = await db.select().from(signatureRequest).where(eq(signatureRequest.id, signatureRequestId));
+  if (!req) throw new NotFoundError("Signature request");
+  await loadContractForAdmin(actor, req.contractId);
+  if (req.status !== "COMPLETING") throw new StateError("This signature request is not waiting to be completed.");
+  return completeExecution(actor.id, req.id);
+}
+
+/** Locks the request and contract and confirms nothing changed (void, material change) since signing finished. */
+async function lockForCompletion(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], requestId: string) {
+  const [req] = await tx.select().from(signatureRequest).where(eq(signatureRequest.id, requestId)).for("update");
+  const [c] = await tx.select().from(contract).where(eq(contract.id, req.contractId)).for("update");
+  if (req.status !== "COMPLETING") throw new StateError(`Signature request is ${req.status.toLowerCase()}; execution was not recorded.`);
+  if (c.status !== "PENDING_SIGNATURE" || !["SENT", "PARTIALLY_SIGNED"].includes(c.signatureStatus)) {
+    throw new StateError("The contract changed while signing completed; execution was not recorded.");
+  }
+  return { req, c };
+}
+
+async function completeExecution(actorId: string, requestId: string) {
+  const [req] = await db.select().from(signatureRequest).where(eq(signatureRequest.id, requestId));
   const [c] = await db.select().from(contract).where(eq(contract.id, req.contractId));
   const [agencySigner] = await db
     .select()
@@ -350,6 +386,7 @@ async function completeExecution(actorId: string, req: typeof signatureRequest.$
   await recordCheck(c, agencySigner.userId!, result, "COMPLETION", actorId);
   if (!result.passed) {
     await db.transaction(async (tx) => {
+      await lockForCompletion(tx, req.id);
       await tx.update(signatureRequest).set({ status: "VOIDED" }).where(eq(signatureRequest.id, req.id));
       await tx.insert(signatureEvent).values({ requestId: req.id, event: "VOIDED_AUTHORITY_LAPSED", detail: { reasons: result.reasons } });
       await tx.update(contract).set({ signatureStatus: "READY" }).where(eq(contract.id, c.id));
@@ -373,7 +410,7 @@ async function completeExecution(actorId: string, req: typeof signatureRequest.$
   const systemActor: Actor = { id: actorId, name: "system", email: "", title: null, primaryOrgId: null, assignments: [] };
 
   return db.transaction(async (tx) => {
-    const [locked] = await tx.select().from(contract).where(eq(contract.id, c.id)).for("update");
+    const { c: locked } = await lockForCompletion(tx, req.id);
     const execDoc = await uploadDocument(
       systemActor,
       {
@@ -444,8 +481,8 @@ async function completeExecution(actorId: string, req: typeof signatureRequest.$
 export async function simulateMockSigning(actor: Actor, signatureRequestId: string) {
   const [req] = await db.select().from(signatureRequest).where(eq(signatureRequest.id, signatureRequestId));
   if (!req) throw new NotFoundError("Signature request");
-  if (!req.isMock) throw new ForbiddenError("Simulation is only available for the development mock provider.");
   await loadContractForAdmin(actor, req.contractId);
+  if (!req.isMock) throw new ForbiddenError("Simulation is only available for the development mock provider.");
   const signers = await db.select().from(signatureSigner).where(eq(signatureSigner.requestId, req.id));
   const current = signers.find((s) => s.status === "SENT");
   if (!current) throw new StateError("No signer is awaiting signature.");
@@ -460,6 +497,8 @@ export async function voidSignatureRequest(actor: Actor, signatureRequestId: str
   if (!["SENT", "PARTIALLY_SIGNED"].includes(req.status)) throw new StateError("Only in-progress signature requests can be voided.");
   if (!req.isMock) await getESignProvider().voidEnvelope(req.providerEnvelopeId!, reason);
   await db.transaction(async (tx) => {
+    const [locked] = await tx.select().from(signatureRequest).where(eq(signatureRequest.id, req.id)).for("update");
+    if (!["SENT", "PARTIALLY_SIGNED"].includes(locked.status)) throw new StateError("Signing finished or the request changed; it can no longer be voided.");
     await tx.update(signatureRequest).set({ status: "VOIDED" }).where(eq(signatureRequest.id, req.id));
     await tx.insert(signatureEvent).values({ requestId: req.id, event: "VOIDED", detail: { reason, by: actor.name } });
     await tx.update(contract).set({ signatureStatus: "READY" }).where(eq(contract.id, req.contractId));
@@ -476,6 +515,12 @@ export async function recordExternalExecution(actor: Actor, contractId: string, 
   if (input.signedOn > todayIn()) throw new ValidationError("The signing date cannot be in the future.");
   const blockers = await executionBlockers(db, c);
   if (blockers.length) throw new StateError("This contract is not ready to be recorded as executed.", blockers);
+  const [inst] = await db.select().from(workflowInstance).where(eq(workflowInstance.contractId, c.id)).orderBy(desc(workflowInstance.startedAt)).limit(1);
+  const tz = (await getOrgIndex()).get(c.contractingEntityId)?.timeZone ?? "America/Chicago";
+  const approvedOn = inst?.completedAt ? todayIn(tz, inst.completedAt) : null;
+  if (!approvedOn || input.signedOn < approvedOn) {
+    throw new ValidationError(`The signing date must be on or after final approval (${formatDate(approvedOn)}). An agreement signed before approval cannot be recorded here.`);
+  }
   const result = await checkAuthority(db, c, input.signerUserId, input.signedOn);
   await recordCheck(c, input.signerUserId, result, "EXTERNAL", actor.id, input.signedOn);
   if (!result.passed) {

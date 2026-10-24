@@ -93,6 +93,7 @@ const STATUS: Record<string, [string, Tone]> = {
   READY: ["Ready to send", "amber"],
   SENT: ["Out for signature", "teal"],
   PARTIALLY_SIGNED: ["Partially signed", "teal"],
+  COMPLETING: ["All signed — recording", "amber"],
   EXECUTED: ["Executed", "green"],
   EXECUTED_EXTERNALLY: ["Executed (outside CLM)", "green"],
   DEMO_EXECUTED: ["Demo only — not executed", "red"],

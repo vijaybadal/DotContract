@@ -199,7 +199,7 @@ describe("workflow transitions", () => {
     const r = await submitted("Reassign test");
     const t = await pendingTask(r.contractId, "dept");
     await expect(reassignTask(await actor(seed, "dana"), t.id, seed.user.linda, "out of office")).rejects.toBeInstanceOf(ValidationError);
-    await expect(reassignTask(await actor(seed, "nina"), t.id, seed.user.marcus, "x")).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(reassignTask(await actor(seed, "nina"), t.id, seed.user.marcus, "x")).rejects.toBeInstanceOf(NotFoundError); // out of scope: looks like 404
     const [inst] = await db.select().from(s.workflowInstance).where(eq(s.workflowInstance.contractId, r.contractId));
     await expect(addAdHocApprover(await actor(seed, "dana"), inst.id, seed.user.priya, "x")).rejects.toThrow(/requester/);
     await addAdHocApprover(await actor(seed, "dana"), inst.id, seed.user.aisha, "Security sanity check");
@@ -218,7 +218,8 @@ describe("renewals and notifications", () => {
     const [email] = await db.select().from(s.contract).where(eq(s.contract.title, "Enterprise email & productivity suite"));
     expect(fire.autoRenew && email.autoRenew).toBe(true);
     const [ren] = await db.select().from(s.renewal).where(eq(s.renewal.contractId, email.id));
-    await expect(decideRenewal(await actor(seed, "nina"), ren.id, "TERMINATE", "x")).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(decideRenewal(await actor(seed, "nina"), ren.id, "TERMINATE", "x")).rejects.toBeInstanceOf(NotFoundError); // out of scope: looks like 404
+    await expect(decideRenewal(await actor(seed, "linda"), ren.id, "TERMINATE", "x")).rejects.toBeInstanceOf(ForbiddenError); // can see it, not the owner
     await decideRenewal(await actor(seed, "greg"), ren.id, "TERMINATE", "Consolidating onto the new suite");
     expect(await db.select().from(s.actionItem).where(eq(s.actionItem.sourceKey, `nonrenewal-notice:${ren.id}`))).toHaveLength(1);
 

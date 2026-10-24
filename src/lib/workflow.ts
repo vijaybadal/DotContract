@@ -10,7 +10,7 @@
  *   definition version/context it was made against.
  * - A material change re-opens steps flagged reapproveOnMaterialChange.
  */
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, type Conn, type Tx } from "@/db";
 import {
   contract,
@@ -27,7 +27,7 @@ import {
 } from "@/db/schema";
 import { currentAgreementVersion } from "./agreement";
 import { writeAudit, sha256, stableStringify } from "./audit";
-import { getOrgIndex, hasRole, isContractAdminFor, loadActor, type Actor, type OrgIndex } from "./authz";
+import { assertCanViewContract, getOrgIndex, hasRole, isContractAdminFor, isReadOnly, loadActor, type Actor, type OrgIndex } from "./authz";
 import { monthsBetween, todayIn } from "./dates";
 import { ForbiddenError, NotFoundError, StateError, ValidationError } from "./errors";
 import { toNumber } from "./money";
@@ -78,6 +78,8 @@ export async function buildContext(conn: Conn, c: ContractRow, requestType: stri
       totalValue: toNumber(c.totalValue),
       annualValue: toNumber(c.annualValue ?? c.totalValue),
       termMonths: c.effectiveDate && c.expirationDate ? monthsBetween(c.effectiveDate, c.expirationDate) : null,
+      effectiveDate: c.effectiveDate,
+      expirationDate: c.expirationDate,
       riskLevel: c.riskLevel,
       dataSensitivity: c.dataSensitivity,
       fundingSource: c.fundingSource,
@@ -510,6 +512,7 @@ export async function reassignTask(actor: Actor, taskId: string, toUserId: strin
   if (!reason?.trim()) throw new ValidationError("A reason is required to reassign a task.");
   return db.transaction(async (tx) => {
     const ctx = await loadTaskForUpdate(tx, taskId);
+    await assertCanViewContract(actor, ctx.c, tx);
     if (ctx.task.status !== "PENDING") throw new StateError("Only pending tasks can be reassigned.");
     const idx = await getOrgIndex(tx);
     const el = await eligibility(tx, actor, ctx.task, ctx.req.requesterId, idx);
@@ -542,13 +545,16 @@ export async function reassignTask(actor: Actor, taskId: string, toUserId: strin
 export async function addAdHocApprover(actor: Actor, instanceId: string, userId: string, name: string) {
   return db.transaction(async (tx) => {
     const [inst] = await tx.select().from(workflowInstance).where(eq(workflowInstance.id, instanceId)).for("update");
-    if (!inst || inst.status !== "RUNNING") throw new StateError("Ad hoc approvers can only be added to a running workflow.");
+    if (!inst) throw new NotFoundError("Workflow");
     const [c] = await tx.select().from(contract).where(eq(contract.id, inst.contractId));
+    await assertCanViewContract(actor, c, tx);
+    if (inst.status !== "RUNNING") throw new StateError("Ad hoc approvers can only be added to a running workflow.");
     const [req] = await tx.select().from(contractRequest).where(eq(contractRequest.id, inst.requestId));
     const idx = await getOrgIndex(tx);
     if (!isContractAdminFor(actor, c, idx) && c.ownerId !== actor.id) throw new ForbiddenError("Only the contract owner or administrator can add approvers.");
     if (userId === req.requesterId) throw new ValidationError("The requester cannot be added as an approver.");
     const target = await loadActor(userId, tx);
+    if (isReadOnly(target)) throw new ValidationError("Read-only accounts cannot approve.");
     const [t] = await tx
       .insert(workflowTask)
       .values({
@@ -580,11 +586,19 @@ export async function addAdHocApprover(actor: Actor, instanceId: string, userId:
 
 // ───────────── Material change → re-approval ─────────────
 
+export type MaterialChangeOptions = {
+  /** Re-open every approved step, not only those flagged for re-approval (used when no Legal review vouches for the text). */
+  reopenAll?: boolean;
+};
+
 /**
- * Re-opens steps flagged for re-approval when the agreement or key terms change materially after they
- * were approved. Allowed until a signature package is sent.
+ * Applies a material change (new agreement text or changed key terms) to the latest workflow:
+ *  1. Re-evaluates every routing rule against the contract's current terms and adds any step that now
+ *     applies but has not been routed (e.g. a value increase that now requires Finance or executive approval).
+ *  2. Re-opens approved steps flagged reapproveOnMaterialChange (or all approved steps with reopenAll).
+ * Allowed until a signature package is sent.
  */
-export async function applyMaterialChange(tx: Tx, actor: Actor, contractId: string, reason: string) {
+export async function applyMaterialChange(tx: Tx, actor: Actor, contractId: string, reason: string, opts: MaterialChangeOptions = {}) {
   const [c] = await tx.select().from(contract).where(eq(contract.id, contractId)).for("update");
   if (["SENT", "PARTIALLY_SIGNED", "EXECUTED", "EXECUTED_EXTERNALLY", "DEMO_EXECUTED"].includes(c.signatureStatus)) {
     throw new StateError("The agreement is already out for signature or executed. Void the signature request or start an amendment.");
@@ -594,13 +608,45 @@ export async function applyMaterialChange(tx: Tx, actor: Actor, contractId: stri
     .from(workflowInstance)
     .where(and(eq(workflowInstance.contractId, contractId), inArray(workflowInstance.status, ["RUNNING", "COMPLETED"])))
     .orderBy(desc(workflowInstance.startedAt))
-    .limit(1);
-  if (!inst) return { reopened: 0 };
+    .limit(1)
+    .for("update");
+  if (!inst) return { reopened: 0, added: 0 };
+  const [req] = await tx.select().from(contractRequest).where(eq(contractRequest.id, inst.requestId));
+  const [def] = await tx.select().from(workflowDefinition).where(eq(workflowDefinition.id, inst.definitionId));
+  const stepDefs = await tx.select().from(workflowStepDefinition).where(eq(workflowStepDefinition.definitionId, def.id));
+  const idx = await getOrgIndex(tx);
+  const context = await buildContext(tx, c, req.type, def.variables);
+  const benefiting = (await tx.select().from(contractAgency).where(eq(contractAgency.contractId, c.id)))
+    .filter((a) => a.role === "BENEFITING")
+    .map((a) => a.orgId);
   const tasks = await tx.select().from(workflowTask).where(eq(workflowTask.instanceId, inst.id));
-  const toRedo = tasks.filter((t) => t.reapproveOnMaterialChange && t.status === "APPROVED");
-  if (!toRedo.length) return { reopened: 0 };
-  const fromStage = Math.min(...toRedo.map((t) => t.stage));
+  const live = (k: string) => tasks.some((t) => t.stepKey === k && ["APPROVED", "PENDING", "WAITING"].includes(t.status));
 
+  // 1. Steps that apply under the new terms but were never routed (or were skipped)
+  const added: string[] = [];
+  for (const s of stepDefs) {
+    if (live(s.key) || !applies(s.condition as Rule, context)) continue;
+    const { orgIds, missing } = scopeOrgsFor(s.scope, c, benefiting, idx);
+    if (!orgIds.length) throw new StateError(`Step "${s.name}" now applies but cannot be routed: ${missing}.`);
+    for (const orgId of orgIds) {
+      await tx.insert(workflowTask).values({
+        instanceId: inst.id,
+        stepKey: s.key,
+        name: orgIds.length > 1 ? `${s.name} — ${idx.name(orgId)}` : s.name,
+        stage: s.stage,
+        kind: s.kind,
+        roleKey: s.roleKey,
+        scopeOrgId: orgId,
+        conditionSnapshot: s.condition ?? null,
+        reapproveOnMaterialChange: s.reapproveOnMaterialChange,
+        status: "WAITING",
+      });
+    }
+    added.push(s.name);
+  }
+
+  // 2. Re-open approvals that no longer stand
+  const toRedo = tasks.filter((t) => t.status === "APPROVED" && (opts.reopenAll || t.reapproveOnMaterialChange));
   for (const t of toRedo) {
     await tx.update(workflowTask).set({ status: "SUPERSEDED", skipReason: `Material change: ${reason}` }).where(eq(workflowTask.id, t.id));
     await tx.insert(workflowTask).values({
@@ -614,17 +660,25 @@ export async function applyMaterialChange(tx: Tx, actor: Actor, contractId: stri
       assigneeUserId: t.assigneeUserId,
       isAdHoc: t.isAdHoc,
       conditionSnapshot: t.conditionSnapshot,
-      reapproveOnMaterialChange: true,
+      reapproveOnMaterialChange: t.reapproveOnMaterialChange,
       status: "WAITING",
     });
   }
-  // Anything already active in a later stage waits for the re-approval to come back around.
-  await tx
-    .update(workflowTask)
-    .set({ status: "WAITING", activatedAt: null, dueAt: null })
-    .where(and(eq(workflowTask.instanceId, inst.id), eq(workflowTask.status, "PENDING"), ne(workflowTask.stage, fromStage)));
 
-  const reopensLegal = toRedo.some((t) => t.kind === "LEGAL_REVIEW");
+  await tx.update(workflowInstance).set({ context }).where(eq(workflowInstance.id, inst.id));
+  if (!toRedo.length && !added.length) {
+    await writeAudit(tx, { actorId: actor.id, action: "MATERIAL_CHANGE_NO_REROUTE", entityType: "workflow_instance", entityId: inst.id, contractId, data: { reason } });
+    return { reopened: 0, added: 0 };
+  }
+
+  // Work in later stages than the earliest re-opened/added step waits until that step is decided again.
+  const after = await tx.select().from(workflowTask).where(eq(workflowTask.instanceId, inst.id));
+  const fromStage = Math.min(...after.filter((t) => t.status === "WAITING").map((t) => t.stage));
+  for (const t of after.filter((x) => x.status === "PENDING" && x.stage > fromStage)) {
+    await tx.update(workflowTask).set({ status: "WAITING", activatedAt: null, dueAt: null }).where(eq(workflowTask.id, t.id));
+  }
+
+  const reopensLegal = after.some((t) => t.kind === "LEGAL_REVIEW" && t.status === "WAITING");
   await tx.update(workflowInstance).set({ status: "RUNNING", completedAt: null }).where(eq(workflowInstance.id, inst.id));
   await tx.update(contractRequest).set({ status: "SUBMITTED" }).where(eq(contractRequest.id, inst.requestId));
   await tx
@@ -633,7 +687,7 @@ export async function applyMaterialChange(tx: Tx, actor: Actor, contractId: stri
       status: "IN_REVIEW",
       approvalStatus: "PENDING",
       signatureStatus: "NOT_READY",
-      ...(reopensLegal ? { legalStatus: "IN_REVIEW" as const } : {}),
+      ...(reopensLegal && c.legalRequired ? { legalStatus: "IN_REVIEW" as const } : {}),
     })
     .where(eq(contract.id, contractId));
   await writeAudit(tx, {
@@ -642,12 +696,15 @@ export async function applyMaterialChange(tx: Tx, actor: Actor, contractId: stri
     entityType: "workflow_instance",
     entityId: inst.id,
     contractId,
-    data: { reason, reopenedSteps: toRedo.map((t) => t.name) },
+    data: { reason, reopenedSteps: toRedo.map((t) => t.name), addedSteps: added, reopenAll: Boolean(opts.reopenAll) },
   });
-  // Activate the earliest re-opened stage (unless something earlier is still pending).
-  const pendingEarlier = tasks.some((t) => t.status === "PENDING" && t.stage < fromStage);
-  if (!pendingEarlier) await activateNextStage(tx, inst.id, actor.id);
-  return { reopened: toRedo.length };
+  // If nothing is in progress (everything earlier is decided), start the earliest waiting stage now.
+  const stillPending = await tx
+    .select({ id: workflowTask.id })
+    .from(workflowTask)
+    .where(and(eq(workflowTask.instanceId, inst.id), eq(workflowTask.status, "PENDING")));
+  if (!stillPending.length) await activateNextStage(tx, inst.id, actor.id);
+  return { reopened: toRedo.length, added: added.length };
 }
 
 // ───────────── Queries ─────────────

@@ -66,6 +66,11 @@ export async function analyzeDocument(ext: string, bytes: Buffer): Promise<{ tex
   if (ext !== "docx") return { text: null, hasTrackedChanges: null };
   try {
     const zip = await JSZip.loadAsync(bytes);
+    // Guard against decompression bombs before inflating the document body.
+    const entry = zip.file("word/document.xml") as unknown as { _data?: { uncompressedSize?: number } } | null;
+    const declared = entry?._data?.uncompressedSize ?? 0;
+    const total = Object.values(zip.files).reduce((n, f) => n + ((f as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize ?? 0), 0);
+    if (declared > 50 * 1024 * 1024 || total > 200 * 1024 * 1024) throw new ValidationError("The .docx expands to an unreasonable size and was rejected.");
     const xml = (await zip.file("word/document.xml")?.async("string")) ?? "";
     const hasTrackedChanges = /<w:(ins|del|moveFrom|moveTo)\b/.test(xml);
     const text = xml
@@ -81,7 +86,8 @@ export async function analyzeDocument(ext: string, bytes: Buffer): Promise<{ tex
       .replace(/\n{3,}/g, "\n\n")
       .trim();
     return { text, hasTrackedChanges };
-  } catch {
+  } catch (e) {
+    if (e instanceof ValidationError) throw e;
     throw new ValidationError("The .docx file could not be read; it may be corrupt or password-protected.");
   }
 }
@@ -192,8 +198,13 @@ export async function uploadDocument(actor: Actor, input: UploadInput, outer?: T
       await writeAudit(tx, { actorId: actor.id, action: "DOCUMENT_QUARANTINED", entityType: "document_version", entityId: ver.id, contractId: c.id, data: { signature: scan.signature } });
     }
     let reopened = 0;
-    if (doc.kind === "AGREEMENT" && ver.isMaterialChange && !input.system) {
-      reopened = (await applyMaterialChange(tx, actor, c.id, input.note?.trim() || `New agreement version ${ver.versionNo}`)).reopened;
+    // A new agreement version after approvals began invalidates those approvals when:
+    //  - the uploader marked it a material change (re-opens Legal and other flagged steps), or
+    //  - Legal review was waived, so no Legal clearance vouches for the new text (re-opens every approval).
+    const inReview = ["IN_REVIEW", "IN_LEGAL", "PENDING_SIGNATURE"].includes(c.status);
+    if (doc.kind === "AGREEMENT" && !input.system && inReview && (ver.isMaterialChange || !c.legalRequired)) {
+      const why = input.note?.trim() || `New agreement version ${ver.versionNo}`;
+      reopened = (await applyMaterialChange(tx, actor, c.id, why, { reopenAll: !c.legalRequired })).reopened;
     }
     return { document: doc, version: ver, scan, reopened };
   };
@@ -245,6 +256,9 @@ export async function compareVersions(actor: Actor, fromVersionId: string, toVer
   await assertCanViewContract(actor, a.c);
   if ((a.d.confidential || b.d.confidential || a.c.confidential) && !(await canSeeConfidential(actor, a.c))) {
     throw new ForbiddenError("This document is marked confidential.");
+  }
+  if (a.v.scanStatus !== "CLEAN" || b.v.scanStatus !== "CLEAN") {
+    return { supported: false as const, reason: "One of these versions has not passed the malware scan." };
   }
   if (a.v.extractedText == null || b.v.extractedText == null) {
     return { supported: false as const, reason: "Text comparison is available for .docx and .txt versions only." };

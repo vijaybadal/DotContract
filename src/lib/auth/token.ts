@@ -20,10 +20,14 @@ export async function signSession(userId: string, method: "dev" | "oidc") {
 }
 
 export async function verifySession(token: string | undefined): Promise<string | null> {
+  return (await readSession(token))?.userId ?? null;
+}
+
+export async function readSession(token: string | undefined): Promise<{ userId: string; method: string } | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
-    return typeof payload.sub === "string" ? payload.sub : null;
+    return typeof payload.sub === "string" ? { userId: payload.sub, method: String(payload.amr ?? "") } : null;
   } catch {
     return null;
   }

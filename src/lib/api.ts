@@ -2,7 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { getActor } from "@/lib/auth/session";
 import { isAppError } from "@/lib/errors";
-import type { Actor } from "@/lib/authz";
+import { isReadOnly, type Actor } from "@/lib/authz";
 
 type Ctx<P> = { params: Promise<P> };
 
@@ -11,6 +11,9 @@ export function api<P = Record<string, string>>(fn: (req: Request, actor: Actor,
   return async (req: Request, ctx: Ctx<P>) => {
     const actor = await getActor();
     if (!actor) return NextResponse.json({ error: { code: "UNAUTHENTICATED", message: "Sign in required." } }, { status: 401 });
+    if (!["GET", "HEAD"].includes(req.method) && isReadOnly(actor)) {
+      return NextResponse.json({ error: { code: "FORBIDDEN", message: "Your account is read-only." } }, { status: 403 });
+    }
     try {
       const out = await fn(req, actor, await ctx.params);
       if (out instanceof Response) return out;

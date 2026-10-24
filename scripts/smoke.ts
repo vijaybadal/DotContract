@@ -25,6 +25,7 @@ async function main() {
   const nina = await cookieFor("nina"); // City public-safety requester
   const owen = await cookieFor("owen"); // auditor
   const [countyOnly] = await db.select().from(contract).where(eq(contract.title, "Payroll & HR cloud"));
+  const [treasurer] = await db.select().from(contract).where(eq(contract.title, "Treasurer tax collection system"));
 
   let r = await fetch(`${BASE}/api/health`);
   check("health endpoint reports the database", r.status === 200 && (await r.json()).database === "ok");
@@ -50,6 +51,15 @@ async function main() {
 
   r = await fetch(`${BASE}/api/v1/requests`, { method: "POST", headers: { cookie: nina, origin: BASE, "content-type": "application/json" }, body: JSON.stringify({ title: "x" }) });
   check("validation errors return 422 with field details", r.status === 422 && Array.isArray((await r.json()).error.details));
+
+  r = await fetch(`${BASE}/api/v1/requests`, { method: "POST", headers: { cookie: owen, origin: BASE, "content-type": "application/json" }, body: JSON.stringify({ title: "Auditor attempt" }) });
+  check("read-only auditor cannot change anything (403)", r.status === 403);
+
+  r = await fetch(`${BASE}/api/v1/contracts/${treasurer.id}/authority-check`, { headers: { cookie: await cookieFor("kevin") } }); // Kevin owns it but is not an administrator
+  check("signing-authority lookups are limited to administrators and auditors", r.status === 403);
+
+  r = await fetch(`${BASE}/api/v1/reports/change-history`, { headers: { cookie: nina } });
+  check("audit-detail report is limited to administrators and auditors", r.status === 403);
 
   r = await fetch(`${BASE}/api/v1/reports/inventory`, { headers: { cookie: owen } });
   const csv = await r.text();

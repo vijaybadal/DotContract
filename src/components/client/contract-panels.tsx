@@ -223,6 +223,17 @@ export function SignatureRequestActions({ requestId, isMock }: { requestId: stri
   );
 }
 
+export function RetryCompletion({ requestId }: { requestId: string }) {
+  const { pending, result, run } = useAction();
+  return (
+    <div className="mt-3">
+      <p className="text-sm text-muted">Every party signed, but recording the executed copy did not finish.</p>
+      <button className={`${btn.primary} mt-2`} disabled={pending} onClick={() => run(() => A.retryCompletion(requestId), "Execution recorded. The contract is active.")}>Finish recording execution</button>
+      <ActionMessage result={result} />
+    </div>
+  );
+}
+
 export function ExternalExecutionForm({ contractId, signers }: { contractId: string; signers: Person[] }) {
   const { pending, result, run } = useAction();
   return (

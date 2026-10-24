@@ -27,6 +27,7 @@ import {
   ReassignForm,
   RenewalDecisionForm,
   ResolveIssue,
+  RetryCompletion,
   SendSignatureForm,
   SignatureRequestActions,
   TaskDecisionForm,
@@ -532,6 +533,7 @@ async function SignatureTab({ detail }: { detail: Detail }) {
                   ))}
                 </ol>
                 {can.administer && ["SENT", "PARTIALLY_SIGNED"].includes(r.status) && <SignatureRequestActions requestId={r.id} isMock={r.isMock} />}
+                {can.administer && r.status === "COMPLETING" && <RetryCompletion requestId={r.id} />}
               </li>
             ))}
           </ul>

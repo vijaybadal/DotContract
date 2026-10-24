@@ -15,6 +15,20 @@
       "when": 1792810168949,
       "tag": "0001_append_only_and_search",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792847163223,
+      "tag": "0002_completing_and_agreement_uq",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792847163992,
+      "tag": "0003_integrity_guards",
+      "breakpoints": true
     }
   ]
 }

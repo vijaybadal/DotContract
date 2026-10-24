@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { contractDocument } from "@/db/schema";
-import { getOrgIndex, isSystemAdmin, type Actor } from "./authz";
+import { canAdministerWorkflows, getOrgIndex, isSystemAdmin, type Actor } from "./authz";
 import { listContracts, referenceData } from "./contracts";
 import type { WizardValues } from "@/components/client/request-wizard";
 
@@ -18,6 +18,7 @@ export async function wizardRef(actor: Actor) {
     users: ref.users,
     parents: parents.map((p) => ({ id: p.id, number: p.number, title: p.title })),
     myDepts,
+    canWaiveLegal: canAdministerWorkflows(actor, idx) || actor.assignments.some((a) => a.roleKey === "CLM_ADMIN"),
   };
 }
 

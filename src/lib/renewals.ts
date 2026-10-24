@@ -10,7 +10,7 @@ import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { db, type Conn } from "@/db";
 import { actionItem, contract, renewal } from "@/db/schema";
 import { writeAudit } from "./audit";
-import { getOrgIndex, isContractAdminFor, type Actor } from "./authz";
+import { assertCanViewContract, getOrgIndex, isContractAdminFor, type Actor } from "./authz";
 import { addMonths, daysBetween, formatDate, noticeDeadline, todayIn } from "./dates";
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { notify } from "./notifications";
@@ -67,7 +67,8 @@ export async function runRenewalReminders(now = new Date()) {
       // Term ended
       if (c.expirationDate < today) {
         const stopping = ["TERMINATE", "REPLACE", "CONSOLIDATE"].includes(cycle.decision);
-        if (c.autoRenew && c.renewalTermMonths && !stopping) {
+        // A demo execution (mock e-signature) is not a legal contract, so it never auto-renews.
+        if (c.autoRenew && c.renewalTermMonths && !stopping && !c.executionIsDemo) {
           let next = c.expirationDate;
           while (next < today) next = addMonths(next, c.renewalTermMonths);
           await tx.update(contract).set({ expirationDate: next }).where(eq(contract.id, c.id));
@@ -126,9 +127,9 @@ export async function runRenewalReminders(now = new Date()) {
       const created = await notify(tx, {
         userIds: recipients,
         kind: c.autoRenew ? "CANCELLATION_DEADLINE" : "RENEWAL_REMINDER",
-        title: c.autoRenew
+        title: (c.executionIsDemo ? "DEMO: " : "") + (c.autoRenew
           ? `${c.number} auto-renews: decide by ${formatDate(target)} (${daysUntil} days)`
-          : `${c.number} expires ${formatDate(c.expirationDate)}: renewal decision due ${formatDate(target)}`,
+          : `${c.number} expires ${formatDate(c.expirationDate)}: renewal decision due ${formatDate(target)}`),
         body: `${c.title}. Reminder at the ${threshold}-day mark. Record a decision: renew, renegotiate, extend, replace, consolidate or terminate.`,
         link: `/contracts/${c.id}?tab=renewals`,
         dedupeKey: `renewal:${c.id}:${cycle.cycleExpiration}:${threshold}`,
@@ -156,6 +157,7 @@ export async function decideRenewal(actor: Actor, renewalId: string, decision: R
     const [r] = await tx.select().from(renewal).where(eq(renewal.id, renewalId)).for("update");
     if (!r) throw new NotFoundError("Renewal");
     const [c] = await tx.select().from(contract).where(eq(contract.id, r.contractId));
+    await assertCanViewContract(actor, c, tx);
     const idx = await getOrgIndex(tx);
     if (![r.ownerId, c.ownerId].includes(actor.id) && !isContractAdminFor(actor, c, idx)) {
       throw new ForbiddenError("Only the renewal owner, contract owner or contract administrator can record this decision.");

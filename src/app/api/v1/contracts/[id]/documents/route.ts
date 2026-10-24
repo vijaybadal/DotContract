@@ -1,11 +1,17 @@
 import { api } from "@/lib/api";
-import { listDocuments, uploadDocument, type DocKind } from "@/lib/documents";
+import { canSeeConfidential, listDocuments, uploadDocument, type DocKind } from "@/lib/documents";
 import { getContractDetail } from "@/lib/contracts";
 import { ValidationError } from "@/lib/errors";
 
 export const GET = api<{ id: string }>(async (_req, actor, { id }) => {
-  await getContractDetail(actor, id); // visibility check
-  return (await listDocuments(id)).map((d) => ({ ...d, versions: d.versions.map(({ storageKey: _s, extractedText: _t, ...v }) => v) }));
+  const { contract } = await getContractDetail(actor, id); // visibility check
+  const privileged = await canSeeConfidential(actor, contract);
+  return (await listDocuments(id)).map((d) => {
+    if ((d.confidential || contract.confidential) && !privileged) {
+      return { id: d.id, kind: d.kind, confidential: true, title: "Confidential document", versions: d.versions.map((v) => ({ id: v.id, versionNo: v.versionNo, createdAt: v.createdAt })) };
+    }
+    return { ...d, versions: d.versions.map(({ storageKey: _s, extractedText: _t, uploadedBy, ...v }) => ({ ...v, uploadedBy: { id: uploadedBy.id, name: uploadedBy.name } })) };
+  });
 });
 
 /** multipart/form-data: file, kind?, documentId?, title?, note?, confidential?, material? */

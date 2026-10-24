@@ -22,7 +22,8 @@ export async function dashboardData(actor: Actor) {
   const today = todayIn();
   const contracts = await listContracts(actor, { limit: 2000 });
   const ids = contracts.map((c) => c.id);
-  const active = contracts.filter((c) => c.status === "ACTIVE");
+  // Demo executions (mock e-signature) are not legal contracts: exclude them from portfolio totals.
+  const active = contracts.filter((c) => c.status === "ACTIVE" && !c.executionIsDemo);
   const activeIds = active.map((c) => c.id);
 
   const [subs, commitments, obligations, agencies, pendingTasks] = ids.length

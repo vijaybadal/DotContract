@@ -25,7 +25,7 @@ import {
   uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 const id = () => text("id").primaryKey().$defaultFn(() => randomUUID());
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -77,7 +77,7 @@ export const decisionType = pgEnum("decision_type", [
 export const issueStatus = pgEnum("issue_status", ["OPEN", "RESOLVED", "ACCEPTED_RISK"]);
 export const authoritySource = pgEnum("authority_source", ["DIRECT", "DELEGATED"]);
 export const signatureRequestStatus = pgEnum("signature_request_status", [
-  "SENT", "PARTIALLY_SIGNED", "COMPLETED", "DECLINED", "VOIDED",
+  "SENT", "PARTIALLY_SIGNED", "COMPLETING", "COMPLETED", "DECLINED", "VOIDED",
 ]);
 export const signerType = pgEnum("signer_type", ["AGENCY", "VENDOR"]);
 export const signerStatus = pgEnum("signer_status", ["WAITING", "SENT", "SIGNED", "DECLINED"]);
@@ -337,7 +337,11 @@ export const contractDocument = pgTable(
     createdById: text("created_by_id").notNull().references(() => user.id),
     createdAt: createdAt(),
   },
-  (t) => [index("document_contract_idx").on(t.contractId)],
+  (t) => [
+    index("document_contract_idx").on(t.contractId),
+    // At most one primary agreement per contract; new text is a new version of it.
+    uniqueIndex("document_one_agreement_uq").on(t.contractId).where(sql`${t.kind} = 'AGREEMENT'`),
+  ],
 );
 
 export const documentVersion = pgTable(

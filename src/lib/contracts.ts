@@ -26,6 +26,8 @@ import {
   hasRole,
   isContractAdminFor,
   isReadOnly,
+  canAdministerWorkflows,
+  loadActor,
   type Actor,
 } from "./authz";
 import { addDays, isValidISODate, todayIn } from "./dates";
@@ -151,17 +153,41 @@ async function resolveVendor(tx: Tx, actor: Actor, input: Intake): Promise<strin
   return null;
 }
 
-async function resolveParties(tx: Tx, actor: Actor, input: Intake) {
+async function resolveParties(tx: Tx, actor: Actor, input: Intake, existing?: typeof contract.$inferSelect) {
   const idx = await getOrgIndex(tx);
   const deptId = input.requestingDeptId ?? actor.primaryOrgId;
   if (!deptId || !idx.get(deptId)) throw new ValidationError("Select the requesting department.");
+  const adminId = input.administeringOrgId ?? deptId;
+  if (!idx.get(adminId)) throw new ValidationError("Select the administering organization.");
   const entityId = input.contractingEntityId ?? idx.legalEntityOf(deptId)?.id;
   const entity = idx.get(entityId);
   if (!entity?.isLegalEntity) throw new ValidationError("The contracting entity must be a legal entity (e.g. City of Omaha, Douglas County, DOTComm).");
-  const adminId = input.administeringOrgId ?? deptId;
-  if (!idx.get(adminId)) throw new ValidationError("Select the administering organization.");
   for (const o of [...input.benefitingAgencyIds, ...input.financialAllocations.map((f) => f.orgId)]) {
     if (!idx.get(o)) throw new ValidationError("Unknown agency selected.");
+  }
+  const enterpriseAdmin = canAdministerWorkflows(actor, idx);
+
+  // The contracting entity is the requesting department's government, or the administering organization's
+  // (e.g. DOTComm contracting for a shared service). Anything else needs an enterprise contract administrator.
+  const allowedEntities = new Set([idx.legalEntityOf(deptId)?.id, idx.legalEntityOf(adminId)?.id]);
+  if (!allowedEntities.has(entity.id) && !enterpriseAdmin && existing?.contractingEntityId !== entity.id) {
+    throw new ValidationError(`${entity.name} cannot be the contracting entity for a request from ${idx.path(deptId)}. Ask a contract administrator.`, [
+      { field: "contractingEntityId", message: "Choose the requesting department's government or the administering organization's." },
+    ]);
+  }
+
+  // Owners must be active people who can act (not read-only accounts).
+  for (const [field, uid] of [["ownerId", input.ownerId], ["serviceOwnerId", input.serviceOwnerId]] as const) {
+    if (!uid || uid === actor.id || uid === existing?.[field]) continue;
+    const person = await loadActor(uid, tx).catch(() => null);
+    if (!person || isReadOnly(person) || person.assignments.length === 0) {
+      throw new ValidationError("The owner must be an active user with a working role.", [{ field, message: "Choose an active user who is not a read-only account." }]);
+    }
+  }
+
+  // Only a contract administrator for the administering organization may waive Legal review.
+  if (input.legalRequired === false && existing?.legalRequired !== false && !enterpriseAdmin && !hasRole(actor, "CLM_ADMIN", idx, adminId)) {
+    throw new ValidationError("Only a contract administrator can waive Legal review.", [{ field: "legalRequired", message: "Legal review stays required unless a contract administrator waives it." }]);
   }
   return { idx, deptId, entityId: entity.id, adminId, legalReviewOrgId: entity.legalAuthorityId };
 }
@@ -268,7 +294,7 @@ export async function updateRequest(actor: Actor, requestId: string, raw: unknow
     const idx = await getOrgIndex(tx);
     if (!["DRAFT", "RETURNED"].includes(r.status)) throw new StateError("Only draft or returned requests can be edited.");
     if (!canEditContract(actor, c, idx, [r.requesterId])) throw new ForbiddenError("You cannot edit this request.");
-    const { deptId, entityId, adminId, legalReviewOrgId } = await resolveParties(tx, actor, input);
+    const { deptId, entityId, adminId, legalReviewOrgId } = await resolveParties(tx, actor, input, c);
     const type = await typeIdFor(tx, input.typeKey);
     const vendorId = await resolveVendor(tx, actor, input);
     const next = {
@@ -290,6 +316,7 @@ export async function updateRequest(actor: Actor, requestId: string, raw: unknow
       riskLevel: input.riskLevel,
       dataSensitivity: input.dataSensitivity,
       legalRequired: input.legalRequired,
+      legalStatus: input.legalRequired ? (c.legalStatus === "NOT_REQUIRED" ? ("PENDING_REVIEW" as const) : c.legalStatus) : ("NOT_REQUIRED" as const),
       effectiveDate: input.effectiveDate || null,
       expirationDate: input.expirationDate || null,
       autoRenew: input.autoRenew,
@@ -326,11 +353,14 @@ export async function updateRequest(actor: Actor, requestId: string, raw: unknow
  */
 export async function amendTermsInReview(actor: Actor, contractId: string, patch: { totalValue?: number; expirationDate?: string }, reason: string) {
   if (!reason?.trim()) throw new ValidationError("Explain the change.");
+  if (patch.totalValue != null && !(Number.isFinite(patch.totalValue) && patch.totalValue >= 0)) throw new ValidationError("Total value must be zero or a positive amount.");
   return db.transaction(async (tx) => {
     const [c] = await tx.select().from(contract).where(eq(contract.id, contractId)).for("update");
     if (!c) throw new NotFoundError("Contract");
+    await assertCanViewContract(actor, c, tx);
     const idx = await getOrgIndex(tx);
-    if (!isContractAdminFor(actor, c, idx)) throw new ForbiddenError();
+    if (!isContractAdminFor(actor, c, idx)) throw new ForbiddenError("Only a contract administrator can change terms during review.");
+    if (patch.expirationDate && c.effectiveDate && patch.expirationDate <= c.effectiveDate) throw new ValidationError("Expiration must be after the effective date.");
     if (!["IN_REVIEW", "IN_LEGAL", "PENDING_SIGNATURE"].includes(c.status)) throw new StateError("Terms can only be amended here while the request is in review.");
     const set: Partial<typeof contract.$inferInsert> = {};
     if (patch.totalValue != null) set.totalValue = String(patch.totalValue);
@@ -550,6 +580,7 @@ export async function addLegalIssue(actor: Actor, contractId: string, input: { t
   return db.transaction(async (tx) => {
     const [c] = await tx.select().from(contract).where(eq(contract.id, contractId));
     if (!c) throw new NotFoundError("Contract");
+    await assertCanViewContract(actor, c, tx);
     const idx = await getOrgIndex(tx);
     if (!c.legalReviewOrgId || !hasRole(actor, "LEGAL_REVIEWER", idx, c.legalReviewOrgId)) throw new ForbiddenError("Only the reviewing legal office can log issues.");
     const [row] = await tx
@@ -564,9 +595,11 @@ export async function addLegalIssue(actor: Actor, contractId: string, input: { t
 export async function resolveLegalIssue(actor: Actor, issueId: string, status: "RESOLVED" | "ACCEPTED_RISK", resolution: string) {
   if (!resolution?.trim()) throw new ValidationError("Describe the resolution.");
   return db.transaction(async (tx) => {
-    const [i] = await tx.select().from(legalIssue).where(eq(legalIssue.id, issueId));
+    const [i] = await tx.select().from(legalIssue).where(eq(legalIssue.id, issueId)).for("update");
     if (!i) throw new NotFoundError("Issue");
     const [c] = await tx.select().from(contract).where(eq(contract.id, i.contractId));
+    await assertCanViewContract(actor, c, tx);
+    if (i.status !== "OPEN") throw new StateError("This issue has already been closed.");
     const idx = await getOrgIndex(tx);
     if (!c.legalReviewOrgId || !hasRole(actor, "LEGAL_REVIEWER", idx, c.legalReviewOrgId)) throw new ForbiddenError();
     await tx.update(legalIssue).set({ status, resolution, resolvedAt: new Date() }).where(eq(legalIssue.id, i.id));

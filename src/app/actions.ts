@@ -11,7 +11,7 @@ import { db } from "@/db";
 import { notification, user } from "@/db/schema";
 import { authMode, endSession, getActor, startSession } from "@/lib/auth/session";
 import type { Actor } from "@/lib/authz";
-import { canRunJobs, getOrgIndex } from "@/lib/authz";
+import { canRunJobs, getOrgIndex, isReadOnly } from "@/lib/authz";
 import * as contracts from "@/lib/contracts";
 import { uploadDocument, type DocKind } from "@/lib/documents";
 import { isAppError } from "@/lib/errors";
@@ -24,9 +24,10 @@ import { ForbiddenError } from "@/lib/errors";
 
 export type ActionResult<T = unknown> = { ok: true; data?: T } | { ok: false; error: string; code?: string; details?: unknown };
 
-async function run<T>(fn: (actor: Actor) => Promise<T>, revalidate: string[] = []): Promise<ActionResult<T>> {
+async function run<T>(fn: (actor: Actor) => Promise<T>, revalidate: string[] = [], opts: { readOnlyAllowed?: boolean } = {}): Promise<ActionResult<T>> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "Your session ended. Sign in again.", code: "UNAUTHENTICATED" };
+  if (!opts.readOnlyAllowed && isReadOnly(actor)) return { ok: false, error: "Your account is read-only.", code: "FORBIDDEN" };
   try {
     const data = await fn(actor);
     for (const p of revalidate) revalidatePath(p);
@@ -120,6 +121,9 @@ export async function sendForSignature(contractId: string, input: signing.SendIn
 export async function simulateSigning(signatureRequestId: string) {
   return run((a) => signing.simulateMockSigning(a, signatureRequestId), ["/signatures", "/contracts", "/"]);
 }
+export async function retryCompletion(signatureRequestId: string) {
+  return run((a) => signing.retryCompletion(a, signatureRequestId), ["/signatures", "/contracts", "/"]);
+}
 export async function voidSignature(signatureRequestId: string, reason: string) {
   return run((a) => signing.voidSignatureRequest(a, signatureRequestId, reason), ["/signatures", "/contracts"]);
 }
@@ -156,7 +160,7 @@ export async function runJobsNow() {
 export async function markAllNotificationsRead() {
   return run(async (a) => {
     await db.update(notification).set({ readAt: new Date() }).where(and(eq(notification.userId, a.id), isNull(notification.readAt)));
-  }, ["/notifications"]);
+  }, ["/notifications"], { readOnlyAllowed: true });
 }
 
 // ───── Workflow administration
@@ -164,5 +168,5 @@ export async function publishWorkflow(key: string, input: unknown) {
   return run((a) => publishDefinitionVersion(a, key, input), ["/admin/workflows"]);
 }
 export async function previewWorkflow(definitionId: string, contractId: string) {
-  return run((a) => previewRouting(a, definitionId, contractId));
+  return run((a) => previewRouting(a, definitionId, contractId), [], { readOnlyAllowed: true });
 }
