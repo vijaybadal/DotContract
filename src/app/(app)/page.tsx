@@ -97,7 +97,7 @@ export default async function Dashboard() {
           {[
             ["Active contracts", String(d.totals.active), `${d.totals.onBehalf} administered by DOTComm for another agency`, "/contracts?status=ACTIVE"],
             ["Annual commitments", formatMoney(d.totals.annualValue, { compact: true }), `${formatMoney(d.totals.totalValue, { compact: true })} total contract value`, "/financials"],
-            ["SaaS subscriptions", formatMoney(d.totals.saasAnnual, { compact: true }), `${d.totals.saasCount} subscriptions · ${formatMoney(d.licenses.unusedCost, { compact: true })} in unassigned licenses`, "/saas"],
+            ["SaaS subscriptions", formatMoney(d.totals.saasAnnual, { compact: true }), `${d.totals.saasCount} subscription${d.totals.saasCount === 1 ? "" : "s"} · ${formatMoney(d.licenses.unusedCost, { compact: true })} in unassigned licenses`, "/saas"],
             ["In the approval pipeline", String(d.totals.inReview + d.totals.inLegal + d.totals.awaitingSignature), `${d.totals.inReview} in review · ${d.totals.inLegal} in Legal · ${d.totals.awaitingSignature} awaiting signature`, "/contracts?status=OPEN_REQUESTS"],
           ].map(([k, v, sub, href]) => (
             <Link key={k} href={href} className="bg-panel px-4 py-3.5 hover:bg-[#f8f9f7]">
