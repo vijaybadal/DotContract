@@ -37,4 +37,12 @@ export async function endSession() {
   (await cookies()).delete(SESSION_COOKIE);
 }
 
-export const authMode = () => (process.env.AUTH_MODE === "oidc" ? "oidc" : "dev");
+/**
+ * "dev" shows the demonstration account picker. It is never enabled implicitly in a production build:
+ * a production server needs ALLOW_DEMO_LOGIN=true as well (demonstration servers only).
+ */
+export const authMode = (): "dev" | "oidc" => {
+  if (process.env.AUTH_MODE !== "dev") return "oidc";
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEMO_LOGIN !== "true") return "oidc";
+  return "dev";
+};

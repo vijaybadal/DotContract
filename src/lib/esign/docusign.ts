@@ -13,7 +13,11 @@ export class DocuSignProvider implements ESignProvider {
   readonly name = "docusign";
   readonly isMock = false;
   async createEnvelope(): Promise<{ envelopeId: string }> {
-    throw new NotConfiguredError("DocuSign is not configured for this environment. Use externally signed upload, or ESIGN_PROVIDER=mock in development.");
+    throw new NotConfiguredError(
+      process.env.NODE_ENV === "production" && process.env.ESIGN_PROVIDER !== "docusign"
+        ? "No e-signature provider is configured. The development mock is disabled in production; set ALLOW_MOCK_ESIGN=true only for a demonstration server, or record a signature obtained outside the CLM."
+        : "DocuSign is not configured for this environment. Record a signature obtained outside the CLM instead.",
+    );
   }
   async voidEnvelope(): Promise<void> {
     throw new NotConfiguredError("DocuSign is not configured.");

@@ -24,6 +24,7 @@ export function useAction() {
         if (Array.isArray(d)) details = d as Detail[];
         else if (d && typeof d === "object" && "reasons" in d) details = (d as { reasons: Detail[] }).reasons;
         setResult({ ok: false, message: r.error, details });
+        router.refresh(); // failed attempts can still change server state (e.g. a recorded authority check)
       }
     });
   }
