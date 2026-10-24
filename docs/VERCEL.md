@@ -36,8 +36,8 @@ git push -u origin main
 ```
 
 In Vercel: **Add New… › Project › Import** the repository. Vercel detects Next.js; leave the build
-settings as they are (`vercel.json` supplies the build command). **Don't deploy yet** — click
-**Environment Variables** first, or let the first deploy fail and redeploy after step 4.
+settings as they are (`vercel.json` supplies the build command) and click **Deploy**. This first deploy
+builds without a database, so the site won't work yet — steps 3–5 fix that.
 
 **Option B — Vercel CLI (no GitHub).** From the unzipped folder: `npx vercel` and answer the prompts
 (it creates the project and uploads the code). Continue with step 3, then run `npx vercel --prod`.
