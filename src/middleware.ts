@@ -10,7 +10,8 @@ export async function middleware(req: NextRequest) {
   // CSRF defense for state-changing API calls: require a same-origin request.
   if (pathname.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
     const origin = req.headers.get("origin");
-    if (!origin || new URL(origin).host !== req.headers.get("host")) {
+    const hosts = [req.headers.get("host"), req.headers.get("x-forwarded-host")].filter(Boolean);
+    if (!origin || !hosts.includes(new URL(origin).host)) {
       return NextResponse.json({ error: { code: "CSRF", message: "Cross-origin request rejected." } }, { status: 403 });
     }
   }

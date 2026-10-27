@@ -4,6 +4,12 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadActor, type Actor } from "@/lib/authz";
 import { readSession, SESSION_COOKIE, SESSION_HOURS, signSession } from "./token";
+import { onStackBlitz } from "@/lib/runtime";
+
+/** StackBlitz shows the app in a cross-site preview frame, which only keeps SameSite=None; Secure cookies. */
+function cookieMode(): { sameSite: "lax" | "none"; secure: boolean } {
+  return onStackBlitz() ? { sameSite: "none", secure: true } : { sameSite: "lax", secure: process.env.NODE_ENV === "production" };
+}
 
 export const getActor = cache(async (): Promise<Actor | null> => {
   const store = await cookies();
@@ -28,8 +34,7 @@ export async function startSession(userId: string, method: "dev" | "oidc") {
   const store = await cookies();
   store.set(SESSION_COOKIE, await signSession(userId, method), {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    ...cookieMode(),
     path: "/",
     maxAge: SESSION_HOURS * 3600,
   });
@@ -70,7 +75,7 @@ export async function checkAccessCode(code: string) {
   const got = Buffer.from(code.trim());
   const ok = want.length > 0 && got.length === want.length && timingSafeEqual(got, want);
   if (ok) {
-    (await cookies()).set(GATE_COOKIE, gateValue(), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 30 * 86400 });
+    (await cookies()).set(GATE_COOKIE, gateValue(), { httpOnly: true, ...cookieMode(), path: "/", maxAge: 30 * 86400 });
   }
   return ok;
 }

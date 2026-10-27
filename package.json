@@ -16,7 +16,8 @@
     "test": "vitest run",
     "smoke": "tsx scripts/smoke.ts",
     "e2e": "node e2e/scenarios.e2e.mjs",
-    "vercel-build": "tsx scripts/vercel-build.ts && next build"
+    "vercel-build": "tsx scripts/vercel-build.ts && next build",
+    "css:prebuilt": "tailwindcss -i src/app/globals.css -o src/app/globals.prebuilt.css --minify && node scripts/stamp-css.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.12",

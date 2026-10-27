@@ -1,0 +1,8 @@
+{
+  "installDependencies": true,
+  "startCommand": "npm run dev",
+  "env": {
+    "CLM_STACKBLITZ": "1",
+    "NEXT_TELEMETRY_DISABLED": "1"
+  }
+}
