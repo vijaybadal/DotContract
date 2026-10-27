@@ -368,7 +368,10 @@ export const documentVersion = pgTable(
 );
 
 // Encrypted document bytes for hosts without lasting disk (STORAGE_PROVIDER=db). Never updated.
-const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+const bytea = customType<{ data: Buffer; driverData: Buffer | Uint8Array }>({
+  dataType: () => "bytea",
+  fromDriver: (v) => (Buffer.isBuffer(v) ? v : Buffer.from(v)), // PGlite returns Uint8Array
+});
 export const storedObject = pgTable("stored_object", {
   key: text("key").primaryKey(),
   bytes: bytea("bytes").notNull(),

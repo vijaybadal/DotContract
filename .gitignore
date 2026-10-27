@@ -7,3 +7,4 @@ e2e/artifacts
 next-env.d.ts
 node_modules
 storage/*
+.pglite-data

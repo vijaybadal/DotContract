@@ -15,7 +15,8 @@ import { NotConfiguredError } from "./errors";
 
 export interface StorageAdapter {
   readonly name: string;
-  put(key: string, bytes: Buffer): Promise<void>;
+  /** conn: the caller's open transaction, so database-backed storage commits or rolls back with it */
+  put(key: string, bytes: Buffer, conn?: unknown): Promise<void>;
   get(key: string): Promise<Buffer>;
 }
 
@@ -63,11 +64,12 @@ export class LocalEncryptedStorage implements StorageAdapter {
 
 export class DatabaseEncryptedStorage implements StorageAdapter {
   readonly name = "db-encrypted";
-  async put(key: string, bytes: Buffer) {
+  async put(key: string, bytes: Buffer, conn?: unknown) {
     assertKey(key);
     const { db } = await import("@/db");
     const { storedObject } = await import("@/db/schema");
-    await db.insert(storedObject).values({ key, bytes: encrypt(bytes) }); // primary key: never overwritten
+    const c = (conn as typeof db | undefined) ?? db;
+    await c.insert(storedObject).values({ key, bytes: encrypt(bytes) }); // primary key: never overwritten
   }
   async get(key: string) {
     assertKey(key);
@@ -75,7 +77,7 @@ export class DatabaseEncryptedStorage implements StorageAdapter {
     const { storedObject } = await import("@/db/schema");
     const [row] = await db.select().from(storedObject).where(eq(storedObject.key, key));
     if (!row) throw new Error("Stored object not found");
-    return decrypt(row.bytes);
+    return decrypt(Buffer.from(row.bytes)); // some drivers return Uint8Array
   }
 }
 

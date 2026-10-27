@@ -1,8 +1,7 @@
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { and, eq } from "drizzle-orm";
-import { db } from "@/db";
+import { db, migrateDb } from "@/db";
 import * as s from "@/db/schema";
 import { seedDatabase } from "@/db/seed";
 import { DOCX_MIME, makeDocx, STANDARD_TERMS } from "@/db/fixtures";
@@ -12,9 +11,11 @@ import { addDays, todayIn } from "@/lib/dates";
 export type Seeded = Awaited<ReturnType<typeof seedDatabase>>;
 
 export async function resetAndSeed(opts: { inFlight?: boolean } = {}): Promise<Seeded> {
-  await db.execute(sql`drop schema if exists public cascade; drop schema if exists drizzle cascade; create schema public;`);
+  await db.execute(sql`drop schema if exists public cascade`);
+  await db.execute(sql`drop schema if exists drizzle cascade`);
+  await db.execute(sql`create schema public`);
   await rm(process.env.STORAGE_DIR ?? "./.test-storage", { recursive: true, force: true });
-  await migrate(db, { migrationsFolder: "./drizzle" });
+  await migrateDb();
   invalidateOrgCache();
   return seedDatabase({ inFlight: opts.inFlight ?? false });
 }

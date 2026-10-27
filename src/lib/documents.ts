@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { diffWords } from "diff";
 import JSZip from "jszip";
 import { and, desc, eq, max } from "drizzle-orm";
-import { db, type Tx } from "@/db";
+import { db, type Conn, type Tx } from "@/db";
 import { contract, contractDocument, contractRequest, documentVersion, workflowInstance, workflowTask } from "@/db/schema";
 import { sha256, writeAudit } from "./audit";
 import {
@@ -43,10 +43,12 @@ const MIME_BY_EXT: Record<string, string[]> = {
 
 export type IncomingFile = { name: string; type: string; bytes: Buffer };
 
-export async function validateFile(f: IncomingFile) {
+export async function validateFile(f: IncomingFile, conn: Conn = db) {
   const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
-  const allowed = await getSetting("documents.allowedExtensions");
-  const maxBytes = await getSetting("documents.maxBytes");
+  // Reads go through the caller's transaction when there is one (single-connection drivers such as
+  // PGlite would otherwise wait on themselves).
+  const allowed = await getSetting("documents.allowedExtensions", conn);
+  const maxBytes = await getSetting("documents.maxBytes", conn);
   if (!allowed.includes(ext)) throw new ValidationError(`Files of type .${ext || "?"} are not accepted. Allowed: ${allowed.join(", ")}.`);
   if (f.bytes.length === 0) throw new ValidationError("The file is empty.");
   if (f.bytes.length > maxBytes) throw new ValidationError(`File exceeds the ${Math.round(maxBytes / 1048576)} MB limit.`);
@@ -119,7 +121,7 @@ export type UploadInput = {
 };
 
 export async function uploadDocument(actor: Actor, input: UploadInput, outer?: Tx) {
-  const { ext, mime } = await validateFile(input.file);
+  const { ext, mime } = await validateFile(input.file, outer ?? db);
   const analysis = await analyzeDocument(ext, input.file.bytes);
   const scan = await getScanner().scan(input.file.bytes);
   const hash = sha256(input.file.bytes);
@@ -167,7 +169,7 @@ export async function uploadDocument(actor: Actor, input: UploadInput, outer?: T
     }
 
     const [{ v }] = await tx.select({ v: max(documentVersion.versionNo) }).from(documentVersion).where(eq(documentVersion.documentId, doc.id));
-    await getStorage().put(storageKey, input.file.bytes);
+    await getStorage().put(storageKey, input.file.bytes, tx);
     const [ver] = await tx
       .insert(documentVersion)
       .values({
