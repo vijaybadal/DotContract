@@ -47,6 +47,8 @@ npm run jobs
 
 Shared demo on Vercel + Neon (about 15 minutes, no server to manage): [docs/VERCEL.md](docs/VERCEL.md).
 
+Zero-setup demo in the browser on StackBlitz (each visitor gets a private copy): [docs/STACKBLITZ.md](docs/STACKBLITZ.md).
+
 With Docker (not yet run in CI — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)):
 
 ```bash
@@ -86,7 +88,7 @@ transitions, renewal date math and the regressions from the independent security
 - [Architecture and data model](docs/ARCHITECTURE.md)
 - [Administrator guide](docs/ADMIN.md) — workflows and routing rules, signing authority, roles, jobs
 - [Integrations](docs/INTEGRATIONS.md) — SSO, e-signature, email, storage, malware scanning, ERP
-- [Deployment](docs/DEPLOYMENT.md) · [Vercel + Neon demo](docs/VERCEL.md)
+- [Deployment](docs/DEPLOYMENT.md) · [Vercel + Neon demo](docs/VERCEL.md) · [StackBlitz demo](docs/STACKBLITZ.md)
 - [Decisions needed before production](docs/DECISIONS.md)
 - [Known limitations and backlog](docs/LIMITATIONS.md)
 - [Security review and fixes](docs/SECURITY-REVIEW.md)

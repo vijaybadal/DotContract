@@ -24,6 +24,9 @@
 - **Vercel configuration** was tested locally against an empty PostgreSQL database with the same build
   script, storage, cron and access-code settings, but not on Vercel itself (Vercel and Neon were not
   reachable from the build environment).
+- **StackBlitz demo mode** was tested with StackBlitz conditions simulated (no .env, PGlite, no native
+  Tailwind, development mode), not inside StackBlitz itself. Its stylesheet is precompiled; re-run
+  `npm run css:prebuilt` after UI changes.
 - **Database document storage** (used on Vercel) suits demonstrations and modest volumes; production
   should use object storage.
 
