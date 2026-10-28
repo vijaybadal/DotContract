@@ -6,6 +6,8 @@ const stackblitz =
   process.env.CLM_STACKBLITZ === "1" ||
   Boolean((process.versions as Record<string, string | undefined>).webcontainer) ||
   process.env.SHELL === "/bin/jsh";
+// Same rule as dbDriver() in src/lib/runtime.ts.
+const pglite = process.env.DB_DRIVER ? process.env.DB_DRIVER === "pglite" : stackblitz;
 
 // StackBlitz shows the app inside its editor's preview frame; everywhere else the app refuses framing.
 const frameAncestors = stackblitz ? "https://stackblitz.com https://*.stackblitz.com https://*.webcontainer.io https://*.webcontainer-api.io" : "'none'";
@@ -31,7 +33,8 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_MAX_UPLOAD_MB: process.env.MAX_UPLOAD_MB ?? (process.env.VERCEL ? "4" : stackblitz ? "10" : "25"),
   },
-  serverExternalPackages: ["pg", "@electric-sql/pglite"],
+  // In PGlite mode, PGlite reaches the bundles through src/db/pglite-shim.cjs instead.
+  serverExternalPackages: pglite ? ["pg"] : ["pg", "@electric-sql/pglite"],
   experimental: {
     serverActions: {
       bodySizeLimit: "26mb",
@@ -39,7 +42,15 @@ const nextConfig: NextConfig = {
       ...(stackblitz ? { allowedOrigins: ["*.webcontainer-api.io", "*.local-credentialless.webcontainer-api.io", "*.webcontainer.io", "*.stackblitz.io"] } : {}),
     },
   },
-  webpack(config, { webpack }) {
+  webpack(config, { webpack, isServer }) {
+    if (pglite && isServer) {
+      // Keeps pages from becoming async modules, which lose request context on StackBlitz: load only the
+      // PGlite driver, and get PGlite itself from src/db/pglite-shim.cjs rather than as an ES module.
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(/[\\/]src[\\/]db[\\/]driver\.ts$/, path.resolve(__dirname, "src/db/driver.stackblitz.ts")),
+        new webpack.NormalModuleReplacementPlugin(/^@electric-sql\/pglite$/, path.resolve(__dirname, "src/db/pglite-shim.cjs")),
+      );
+    }
     if (stackblitz) {
       // Tailwind's native compiler can't run in the browser: use the precompiled stylesheet instead.
       config.plugins.push(

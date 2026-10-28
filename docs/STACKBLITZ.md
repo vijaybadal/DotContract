@@ -19,14 +19,8 @@ and switches into demo mode on its own.
 
 ## Option A — From GitHub (recommended)
 
-1. Put the code in a GitHub repository. From the unzipped `dotcomm-clm` folder:
-
-   ```bash
-   git init && git add -A && git commit -m "DOTComm CLM Phase 1"
-   git branch -M main
-   git remote add origin https://github.com/<you>/dotcomm-clm.git
-   git push -u origin main
-   ```
+1. The code is in https://github.com/vijaybadal/DotContract. (For another copy: push the project to a
+   repository of your own and use its name in the addresses below.)
 
    A **public** repository opens on any StackBlitz plan. A **private** repository needs a paid StackBlitz
    membership and your GitHub account connected to StackBlitz.
@@ -34,7 +28,7 @@ and switches into demo mode on its own.
 2. Open this address, preferably in Chrome or Edge (StackBlitz works best in Chromium browsers):
 
    ```
-   https://stackblitz.com/github/<you>/dotcomm-clm
+   https://stackblitz.com/github/vijaybadal/DotContract
    ```
 
 3. Wait for it to start. The terminal at the bottom shows the steps:
@@ -48,9 +42,9 @@ and switches into demo mode on its own.
 5. Pick a demo account (try **Priya Natarajan**) and follow [DEMO.md](DEMO.md). The first visit to each
    page takes a few seconds while it builds; after that it's quick.
 
-**Shareable link:** send `https://stackblitz.com/github/<you>/dotcomm-clm`. Everyone who opens it gets
+**Shareable link:** send `https://stackblitz.com/github/vijaybadal/DotContract`. Everyone who opens it gets
 their own fresh copy. To hand someone an editable copy instead, use
-`https://stackblitz.com/fork/github/<you>/dotcomm-clm`.
+`https://stackblitz.com/fork/github/vijaybadal/DotContract`.
 
 ## Option B — Upload the folder (no GitHub)
 
@@ -90,6 +84,7 @@ their own fresh copy. To hand someone an editable copy instead, use
 | No setup step | On start, `src/instrumentation-node.ts` applies migrations and loads the demo data into the empty database |
 | No `.env` file | Demo-only settings are filled in automatically (`src/lib/runtime.ts`); they are public and protect nothing |
 | Tailwind's native compiler can't run in the browser | Uses the precompiled stylesheet `src/app/globals.prebuilt.css` |
+| Its Node.js loses Next.js's request context when a page waits on an ES module loaded at run time | Pages get PGlite without loading an ES module (`src/db/driver.stackblitz.ts`, `src/db/pglite-shim.cjs`), so they stay synchronous |
 | The preview is shown inside StackBlitz's editor | Allows framing by StackBlitz domains only, and marks cookies `SameSite=None; Secure` |
 
 Demo mode turns on when `CLM_STACKBLITZ=1` (set by `.stackblitzrc`) or when the app detects it is running
@@ -106,6 +101,7 @@ in a WebContainer. Nothing changes on any other host.
 | Page has no styling | `globals.prebuilt.css` is missing or stale. Run `npm run css:prebuilt` locally and push |
 | Stuck on the sign-in page after choosing an account | Your browser blocked the preview's cookie: use **Open in New Tab** |
 | "Invalid Server Actions request" | Open in a new tab; if it persists, report the preview's domain so it can be added to `allowedOrigins` in `next.config.ts` |
+| "Invariant: Expected workUnitAsyncStorage to have a store" | Fixed in the current version: pull the latest code (or reload the project from GitHub). Cause and fix below |
 | `[clm] loading synthetic demo data` never finishes | Stop the terminal, run `rm -rf .pglite-data`, then `npm run dev` |
 
 ## What was tested
@@ -113,5 +109,8 @@ in a WebContainer. Nothing changes on any other host.
 Demo mode was tested on a regular computer with StackBlitz conditions simulated: no `.env` file, an
 empty in-browser database, Tailwind's native compiler removed, and development mode. The full automated
 suite (80 tests) passes on PGlite, and the browser test completes the whole request-to-signature flow.
-It has **not yet been run inside StackBlitz itself**, so the first launch is the remaining check —
-the items most likely to need a tweak are listed in the troubleshooting table.
+The first real StackBlitz launch showed "Expected workUnitAsyncStorage to have a store" on the sign-in
+page. Pages had been compiled as async modules because PGlite (and `pg`) are ES modules, and
+StackBlitz's Node.js drops Next.js's request context across them. In demo mode the page bundles now get
+PGlite synchronously, and the simulated run confirms no page is compiled as an async module. If
+anything else comes up inside StackBlitz, the troubleshooting table above lists the likeliest fixes.

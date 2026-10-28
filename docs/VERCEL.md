@@ -24,16 +24,9 @@ Pick an **access code** to share with your audience, e.g. `omaha-clm-demo`.
 
 ## 2. Get the code onto Vercel
 
-**Option A — GitHub (recommended: every push redeploys).** Create an empty **private** repository, then
-from the unzipped folder:
-
-```bash
-cd dotcomm-clm
-git init && git add -A && git commit -m "DOTComm CLM Phase 1"
-git branch -M main
-git remote add origin https://github.com/<you>/dotcomm-clm.git
-git push -u origin main
-```
+**Option A — GitHub (recommended: every push redeploys).** The code is in
+https://github.com/vijaybadal/DotContract. (For another copy, push the project to a repository of your
+own and import that instead.)
 
 In Vercel: **Add New… › Project › Import** the repository. Vercel detects Next.js; leave the build
 settings as they are (`vercel.json` supplies the build command) and click **Deploy**. This first deploy
